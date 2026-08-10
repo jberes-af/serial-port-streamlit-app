@@ -1,5 +1,12 @@
 # src/gui/streamlit/app.py
 
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+
+
 from src.gui.streamlit.screens.main_page import render_main_page
 
 from src.main.composition_root import (
