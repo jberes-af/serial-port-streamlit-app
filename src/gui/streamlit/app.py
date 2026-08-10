@@ -1,5 +1,7 @@
 # src/gui/streamlit/app.py
 
+from pathlib import Path
+
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
