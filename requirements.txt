@@ -14,3 +14,5 @@ streamlit-extras==1.5.0
 packaging>=25
 markdown==3.10.2
 streamlit>=1.56.0
+
+-e
