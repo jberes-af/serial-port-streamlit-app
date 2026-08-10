@@ -1,0 +1,21 @@
+# AUTO GENERATED
+
+class BillingCaseColumns:
+    BILLING_CASE_ID: str = "billing_case_id"
+    PATIENT_ID: str = "patient_id"
+    MONITORING_PERIOD_ID: str = "monitoring_period_id"
+    SERVICE_PERIOD_START: str = "service_period_start"
+    SERVICE_PERIOD_END: str = "service_period_end"
+    BILLING_PROVIDER_ID: str = "billing_provider_id"
+    RENDERING_PROVIDER_ID: str = "rendering_provider_id"
+    PAYER_ID: str = "payer_id"
+    PATIENT_PAYER_ID: str = "patient_payer_id"
+    STATUS: str = "status"
+    CREATED_AT: str = "created_at"
+    CREATED_BY_USER_ID: str = "created_by_user_id"
+    UPDATED_AT: str = "updated_at"
+    UPDATED_BY_USER_ID: str = "updated_by_user_id"
+    APPROVED_AT: str = "approved_at"
+    APPROVED_BY_USER_ID: str = "approved_by_user_id"
+    VOIDED_AT: str = "voided_at"
+    VOID_REASON: str = "void_reason"
