@@ -37,18 +37,28 @@ class MicroPythonRawReplClient {
             );
         }
 
-        this.port =
-            await navigator.serial.requestPort();
+        if (this.connected) {
+            return;
+        }
 
-        await this.port.open({
-            baudRate: this.baudRate,
-        });
+        try {
+            this.port =
+                await navigator.serial.requestPort();
 
-        this.reader =
-            this.port.readable.getReader();
+            await this.port.open({
+                baudRate: this.baudRate,
+            });
 
-        this.writer =
-            this.port.writable.getWriter();
+            this.reader =
+                this.port.readable.getReader();
+
+            this.writer =
+                this.port.writable.getWriter();
+
+        } catch (error) {
+            this.handlePhysicalDisconnect();
+            throw error;
+        }
     }
 
 
@@ -60,19 +70,59 @@ class MicroPythonRawReplClient {
                 // Ignore cancellation errors.
             }
 
-            this.reader.releaseLock();
+            try {
+                this.reader.releaseLock();
+            } catch {
+                // Ignore lock release errors.
+            }
+
             this.reader = null;
         }
 
         if (this.writer) {
-            this.writer.releaseLock();
+            try {
+                this.writer.releaseLock();
+            } catch {
+                // Ignore lock release errors.
+            }
+
             this.writer = null;
         }
 
         if (this.port) {
-            await this.port.close();
+            const port = this.port;
+
             this.port = null;
+
+            try {
+                await port.close();
+            } catch {
+                // Device may already have been removed.
+            }
         }
+    }
+
+
+    handlePhysicalDisconnect() {
+        if (this.reader) {
+            try {
+                this.reader.releaseLock();
+            } catch {
+                // Ignore.
+            }
+        }
+
+        if (this.writer) {
+            try {
+                this.writer.releaseLock();
+            } catch {
+                // Ignore.
+            }
+        }
+
+        this.reader = null;
+        this.writer = null;
+        this.port = null;
     }
 
 
@@ -259,6 +309,11 @@ class RP2040WebSerialFileService {
     }
 
 
+    handlePhysicalDisconnect() {
+        this.client.handlePhysicalDisconnect();
+    }
+
+
     async execute(code) {
         return await this.client.execute(
             code
@@ -302,171 +357,17 @@ class RP2040WebSerialFileService {
     }
 
 
-    parentRemotePath(path) {
-        const normalized =
-            this.normalizeRemotePath(
-                path
-            );
-
-        const parts =
-            normalized
-                .split("/")
-                .filter(Boolean);
-
-        parts.pop();
-
-        if (parts.length === 0) {
-            return "/";
-        }
-
-        return "/" + parts.join("/");
-    }
-
-
-    async listDirectory(
-        remoteDirectory = "/",
-    ) {
-        const path =
-            this.normalizeRemotePath(
-                remoteDirectory
-            );
-
-        const code = `
-import os
-
-_path = ${JSON.stringify(path)}
-
-for _entry in os.ilistdir(_path):
-    _name = _entry[0]
-    _type = _entry[1]
-    _is_dir = (_type == 0x4000)
-
-    if _is_dir:
-        print("D|" + _name + "|")
-    else:
-        try:
-            _size = _entry[3]
-        except:
-            _size = -1
-
-        print(
-            "F|" +
-            _name +
-            "|" +
-            str(_size)
-        )
-`;
-
-        const result =
-            await this.execute(code);
-
-        if (result.stderr.trim()) {
-            throw new Error(
-                result.stderr.trim()
-            );
-        }
-
-        return this.parseDirectoryListing(
-            result.stdout,
-            path,
-        );
-    }
-
-
-    parseDirectoryListing(
-        output,
-        remoteDirectory,
-    ) {
-        const entries = [];
-
-        for (
-            const rawLine
-            of output.split(/\r?\n/)
-        ) {
-            const line =
-                rawLine.trim();
-
-            if (!line) {
-                continue;
-            }
-
-            const [
-                type,
-                name,
-                sizeText,
-            ] = line.split("|");
-
-            if (
-                type !== "F"
-                && type !== "D"
-            ) {
-                continue;
-            }
-
-            const isDirectory =
-                type === "D";
-
-            let size = null;
-
-            if (!isDirectory) {
-                const parsedSize =
-                    Number(sizeText);
-
-                size =
-                    Number.isFinite(parsedSize)
-                    && parsedSize >= 0
-                        ? parsedSize
-                        : null;
-            }
-
-            entries.push({
-                name,
-
-                path:
-                    this.joinRemotePath(
-                        remoteDirectory,
-                        name,
-                    ),
-
-                isDirectory,
-                size,
-            });
-        }
-
-        entries.sort(
-            (a, b) => {
-                if (
-                    a.isDirectory
-                    !== b.isDirectory
-                ) {
-                    return (
-                        a.isDirectory
-                            ? -1
-                            : 1
-                    );
-                }
-
-                return a.name.localeCompare(
-                    b.name
-                );
-            }
-        );
-
-        return entries;
-    }
-
-
     bytesToBase64(bytes) {
         let binary = "";
 
         for (
-            let i = 0;
-            i < bytes.length;
-            i++
+            let index = 0;
+            index < bytes.length;
+            index++
         ) {
             binary +=
                 String.fromCharCode(
-                    bytes[i]
+                    bytes[index]
                 );
         }
 
@@ -474,10 +375,31 @@ for _entry in os.ilistdir(_path):
     }
 
 
+    base64ToBytes(base64) {
+        const binary =
+            atob(base64);
+
+        const bytes =
+            new Uint8Array(
+                binary.length
+            );
+
+        for (
+            let index = 0;
+            index < binary.length;
+            index++
+        ) {
+            bytes[index] =
+                binary.charCodeAt(index);
+        }
+
+        return bytes;
+    }
+
+
     async writeFile(
         remotePath,
         bytes,
-        onProgress = null,
     ) {
         const path =
             this.normalizeRemotePath(
@@ -485,7 +407,7 @@ for _entry in os.ilistdir(_path):
             );
 
         /*
-         * Create/truncate remote file.
+         * Create or truncate the destination file.
          */
         const createResult =
             await this.execute(`
@@ -496,14 +418,16 @@ with open(
     pass
 `);
 
-        if (
-            createResult.stderr.trim()
-        ) {
+        if (createResult.stderr.trim()) {
             throw new Error(
                 createResult.stderr.trim()
             );
         }
 
+        /*
+         * Transfer in small chunks so that the
+         * MicroPython REPL command remains small.
+         */
         const chunkSize = 512;
 
         for (
@@ -542,52 +466,29 @@ with open(
                     result.stderr.trim()
                 );
             }
-
-            if (onProgress) {
-                const completed =
-                    Math.min(
-                        offset + chunk.length,
-                        bytes.length
-                    );
-
-                onProgress(
-                    completed / bytes.length
-                );
-            }
         }
     }
 
 
-    async writeLocalFile(
-        file,
-        remoteDirectory = "/",
-        onProgress = null,
+    async writeBase64File(
+        remotePath,
+        contentBase64,
     ) {
-        const remotePath =
-            this.joinRemotePath(
-                remoteDirectory,
-                file.name,
-            );
-
-        const buffer =
-            await file.arrayBuffer();
-
         const bytes =
-            new Uint8Array(
-                buffer
+            this.base64ToBytes(
+                contentBase64
             );
 
         await this.writeFile(
             remotePath,
-            bytes,
-            onProgress,
+            bytes
         );
 
-        return remotePath;
+        return bytes.length;
     }
 
 
-    async deleteFile(remotePath) {
+    async fileExists(remotePath) {
         const path =
             this.normalizeRemotePath(
                 remotePath
@@ -597,9 +498,13 @@ with open(
             await this.execute(`
 import os
 
-os.remove(
-    ${JSON.stringify(path)}
-)
+_path = ${JSON.stringify(path)}
+
+try:
+    os.stat(_path)
+    print("1")
+except OSError:
+    print("0")
 `);
 
         if (result.stderr.trim()) {
@@ -607,10 +512,12 @@ os.remove(
                 result.stderr.trim()
             );
         }
+
+        return result.stdout.trim() === "1";
     }
 
 
-    async createDirectory(remotePath) {
+    async readTextFile(remotePath) {
         const path =
             this.normalizeRemotePath(
                 remotePath
@@ -618,11 +525,10 @@ os.remove(
 
         const result =
             await this.execute(`
-import os
+_path = ${JSON.stringify(path)}
 
-os.mkdir(
-    ${JSON.stringify(path)}
-)
+with open(_path, "r") as _file:
+    print(_file.read().strip())
 `);
 
         if (result.stderr.trim()) {
@@ -630,6 +536,42 @@ os.mkdir(
                 result.stderr.trim()
             );
         }
+
+        return result.stdout.trim();
+    }
+
+
+    async readDeviceMetadata() {
+        const sidExists =
+            await this.fileExists(
+                "/sid.dat"
+            );
+
+        const didExists =
+            await this.fileExists(
+                "/did.dat"
+            );
+
+        const sid =
+            sidExists
+                ? await this.readTextFile(
+                    "/sid.dat"
+                )
+                : null;
+
+        const did =
+            didExists
+                ? await this.readTextFile(
+                    "/did.dat"
+                )
+                : null;
+
+        return {
+            sidExists,
+            didExists,
+            sid,
+            did,
+        };
     }
 }
 
@@ -665,84 +607,55 @@ export default function(component) {
             "#refresh-button"
         );
 
-    const fileInput =
-        parentElement.querySelector(
-            "#file-input"
-        );
-
-    const selectedFileElement =
-        parentElement.querySelector(
-            "#selected-file"
-        );
-
-    const destinationInput =
-        parentElement.querySelector(
-            "#destination-input"
-        );
-
-    const uploadButton =
-        parentElement.querySelector(
-            "#upload-button"
-        );
-
-    const fileList =
-        parentElement.querySelector(
-            "#file-list"
-        );
-
-    const currentDirectoryElement =
-        parentElement.querySelector(
-            "#current-directory"
-        );
-
     const deviceStatus =
         parentElement.querySelector(
             "#device-status"
         );
 
-    const statusElement =
-        parentElement.querySelector(
-            "#status"
-        );
 
-    const progressElement =
-        parentElement.querySelector(
-            "#progress"
-        );
+    /*
+     * --------------------------------------------------
+     * Validate component HTML
+     * --------------------------------------------------
+     */
 
-    const progressText =
-        parentElement.querySelector(
-            "#progress-text"
+    if (
+        !connectButton
+        || !disconnectButton
+        || !refreshButton
+        || !deviceStatus
+    ) {
+        throw new Error(
+            "RP2040 component HTML is missing one or more required elements."
         );
+    }
 
 
     /*
      * --------------------------------------------------
-     * State
+     * Persistent browser-side service
      * --------------------------------------------------
+     *
+     * Reuse the same service object when Streamlit
+     * updates the component so that we do not
+     * intentionally create another serial session.
      */
 
+    if (!parentElement.__rp2040Service) {
+        parentElement.__rp2040Service =
+            new RP2040WebSerialFileService({
+                baudRate:
+                    data?.baudRate
+                    ?? 115200,
+
+                timeoutMs:
+                    data?.timeoutMs
+                    ?? 5000,
+            });
+    }
+
     const service =
-        new RP2040WebSerialFileService({
-            baudRate:
-                data?.baudRate
-                ?? 115200,
-
-            timeoutMs:
-                data?.timeoutMs
-                ?? 5000,
-        });
-
-
-    let selectedFile = null;
-
-    let currentDirectory =
-        data?.destination
-        ?? "/";
-
-
-    destinationInput.value =
-        currentDirectory;
+        parentElement.__rp2040Service;
 
 
     /*
@@ -752,9 +665,6 @@ export default function(component) {
      */
 
     function setStatus(message) {
-        statusElement.textContent =
-            message;
-
         setStateValue(
             "status",
             message
@@ -767,9 +677,6 @@ export default function(component) {
             "error",
             message
         );
-
-        statusElement.textContent =
-            message;
     }
 
 
@@ -781,27 +688,41 @@ export default function(component) {
     }
 
 
-    function setProgress(fraction) {
-        const value =
-            Math.max(
-                0,
-                Math.min(
-                    100,
-                    fraction * 100
-                )
-            );
+    function clearMetadata() {
+        setStateValue(
+            "sid_exists",
+            false
+        );
 
-        progressElement.value =
-            value;
+        setStateValue(
+            "did_exists",
+            false
+        );
 
-        progressText.textContent =
-            `${Math.round(value)}%`;
+        setStateValue(
+            "sid",
+            null
+        );
+
+        setStateValue(
+            "did",
+            null
+        );
     }
 
 
-    function refreshButtons() {
-        const connected =
-            service.connected;
+    function setConnectionUi(
+        connected
+    ) {
+        setStateValue(
+            "connected",
+            connected
+        );
+
+        deviceStatus.innerHTML =
+            connected
+                ? "Connection Status: <strong>Connected</strong>"
+                : "Connection Status: <strong>Not Connected</strong>";
 
         connectButton.disabled =
             connected;
@@ -811,135 +732,157 @@ export default function(component) {
 
         refreshButton.disabled =
             !connected;
-
-        uploadButton.disabled =
-            !connected
-            || !selectedFile;
     }
 
 
-    function renderEntries(entries) {
-        fileList.innerHTML = "";
+    async function refreshMetadata() {
+        clearError();
 
-        if (
-            currentDirectory !== "/"
-        ) {
-            const parentEntry =
-                document.createElement(
-                    "div"
-                );
+        setStatus(
+            "Reading device metadata..."
+        );
 
-            parentEntry.className =
-                "file-entry directory-entry";
+        const metadata =
+            await service.readDeviceMetadata();
 
-            parentEntry.textContent =
-                "📁 ..";
+        setStateValue(
+            "sid_exists",
+            metadata.sidExists
+        );
 
-            parentEntry.onclick =
-                async () => {
-                    currentDirectory =
-                        service.parentRemotePath(
-                            currentDirectory
-                        );
+        setStateValue(
+            "did_exists",
+            metadata.didExists
+        );
 
-                    await refreshDirectory();
-                };
+        setStateValue(
+            "sid",
+            metadata.sid
+        );
 
-            fileList.appendChild(
-                parentEntry
-            );
+        setStateValue(
+            "did",
+            metadata.did
+        );
+
+        setStatus(
+            "Device ready."
+        );
+
+        return metadata;
+    }
+
+
+    /*
+     * --------------------------------------------------
+     * Process Python -> JavaScript write request
+     * --------------------------------------------------
+     */
+
+    async function processWriteRequest() {
+        const request =
+            data?.writeRequest;
+
+        if (!request) {
+            return;
         }
 
-        if (entries.length === 0) {
-            const empty =
-                document.createElement(
-                    "div"
-                );
+        if (!service.connected) {
+            return;
+        }
 
-            empty.textContent =
-                "Directory is empty.";
-
-            fileList.appendChild(
-                empty
+        if (
+            !request.filename
+            || !request.contentBase64
+        ) {
+            setError(
+                "Invalid RP2040 write request."
             );
 
             return;
         }
 
-        for (
-            const entry
-            of entries
+        /*
+         * Prefer an explicit requestId supplied by
+         * Python. The fallback signature still prevents
+         * accidental duplicate execution during a
+         * component update.
+         */
+        const requestKey =
+            request.requestId
+            ?? (
+                request.filename
+                + ":"
+                + request.contentBase64
+            );
+
+        if (
+            parentElement.__lastRp2040WriteRequest
+            === requestKey
         ) {
-            const row =
-                document.createElement(
-                    "div"
+            return;
+        }
+
+        try {
+            clearError();
+
+            const remotePath =
+                service.joinRemotePath(
+                    "/",
+                    request.filename
                 );
 
-            row.className =
-                entry.isDirectory
-                    ? "file-entry directory-entry"
-                    : "file-entry";
+            setStatus(
+                `Writing ${request.filename}...`
+            );
 
-            if (entry.isDirectory) {
-                row.textContent =
-                    `📁 ${entry.name}`;
+            const size =
+                await service.writeBase64File(
+                    remotePath,
+                    request.contentBase64
+                );
 
-                row.onclick =
-                    async () => {
-                        currentDirectory =
-                            entry.path;
+            /*
+             * Mark the request completed only after
+             * the write succeeds.
+             */
+            parentElement.__lastRp2040WriteRequest =
+                requestKey;
 
-                        await refreshDirectory();
-                    };
+            /*
+             * Re-read sid.dat/did.dat after writing.
+             * This also acts as a practical verification
+             * that did.dat can be read back.
+             */
+            await refreshMetadata();
 
-            } else {
-                const sizeText =
-                    entry.size === null
-                        ? ""
-                        : ` (${entry.size} bytes)`;
+            setStatus(
+                `${request.filename} written successfully.`
+            );
 
-                row.textContent =
-                    `📄 ${entry.name}${sizeText}`;
-            }
+            setTriggerValue(
+                "transfer_complete",
+                {
+                    requestId:
+                        request.requestId
+                        ?? null,
 
-            fileList.appendChild(
-                row
+                    filename:
+                        request.filename,
+
+                    destination:
+                        remotePath,
+
+                    size:
+                        size,
+                }
+            );
+
+        } catch (error) {
+            setError(
+                `Write failed: ${error.message}`
             );
         }
-    }
-
-
-    async function refreshDirectory() {
-        clearError();
-
-        setStatus(
-            `Reading ${currentDirectory}...`
-        );
-
-        const entries =
-            await service.listDirectory(
-                currentDirectory
-            );
-
-        currentDirectoryElement.textContent =
-            currentDirectory;
-
-        destinationInput.value =
-            currentDirectory;
-
-        renderEntries(entries);
-
-        setStateValue(
-            "entries",
-            entries
-        );
-
-        setStateValue(
-            "current_directory",
-            currentDirectory
-        );
-
-        setStatus("Ready");
     }
 
 
@@ -952,41 +895,70 @@ export default function(component) {
     connectButton.onclick =
         async () => {
 
-            try {
-                clearError();
+            clearError();
 
+            try {
                 setStatus(
                     "Connecting..."
                 );
 
                 await service.connect();
 
-                setStateValue(
-                    "connected",
-                    true
-                );
-
-                deviceStatus.textContent =
-                    "Connected";
-
-                refreshButtons();
-
-                await refreshDirectory();
-
             } catch (error) {
-                setStateValue(
-                    "connected",
+                setConnectionUi(
                     false
                 );
 
-                deviceStatus.textContent =
-                    "Not connected";
-
                 setError(
-                    error.message
+                    `Connection failed: ${error.message}`
                 );
 
-                refreshButtons();
+                return;
+            }
+
+            setConnectionUi(
+                true
+            );
+
+            clearMetadata();
+
+            try {
+                await refreshMetadata();
+
+                /*
+                 * A write request may already have been
+                 * supplied before the user connected.
+                 */
+                await processWriteRequest();
+
+            } catch (error) {
+                setError(
+                    `Unable to initialize device: ${error.message}`
+                );
+            }
+        };
+
+
+    /*
+     * --------------------------------------------------
+     * Refresh metadata
+     * --------------------------------------------------
+     */
+
+    refreshButton.onclick =
+        async () => {
+
+            if (!service.connected) {
+                return;
+            }
+
+            try {
+                await refreshMetadata();
+
+            } catch (error) {
+                setError(
+                    `Unable to read device metadata: ${error.message}`
+                );
             }
         };
 
@@ -1003,13 +975,11 @@ export default function(component) {
             try {
                 await service.disconnect();
 
-                setStateValue(
-                    "connected",
+                clearMetadata();
+
+                setConnectionUi(
                     false
                 );
-
-                deviceStatus.textContent =
-                    "Not connected";
 
                 setStatus(
                     "Disconnected"
@@ -1017,30 +987,7 @@ export default function(component) {
 
             } catch (error) {
                 setError(
-                    error.message
-                );
-
-            } finally {
-                refreshButtons();
-            }
-        };
-
-
-    /*
-     * --------------------------------------------------
-     * Refresh
-     * --------------------------------------------------
-     */
-
-    refreshButton.onclick =
-        async () => {
-
-            try {
-                await refreshDirectory();
-
-            } catch (error) {
-                setError(
-                    error.message
+                    `Disconnect failed: ${error.message}`
                 );
             }
         };
@@ -1048,155 +995,32 @@ export default function(component) {
 
     /*
      * --------------------------------------------------
-     * Local file selection
-     * --------------------------------------------------
-     */
-
-    fileInput.onchange =
-        () => {
-
-            selectedFile =
-                fileInput.files?.[0]
-                ?? null;
-
-            if (!selectedFile) {
-                selectedFileElement.textContent =
-                    "No file selected";
-
-                setStateValue(
-                    "filename",
-                    null
-                );
-
-                setStateValue(
-                    "file_size",
-                    null
-                );
-
-                refreshButtons();
-
-                return;
-            }
-
-            selectedFileElement.textContent =
-                `${selectedFile.name} `
-                + `(${selectedFile.size} bytes)`;
-
-            setStateValue(
-                "filename",
-                selectedFile.name
-            );
-
-            setStateValue(
-                "file_size",
-                selectedFile.size
-            );
-
-            refreshButtons();
-        };
-
-
-    /*
-     * --------------------------------------------------
-     * Upload
-     * --------------------------------------------------
-     */
-
-    uploadButton.onclick =
-        async () => {
-
-            if (!selectedFile) {
-                return;
-            }
-
-            try {
-                clearError();
-
-                uploadButton.disabled =
-                    true;
-
-                setProgress(0);
-
-                setStatus(
-                    `Uploading ${selectedFile.name}...`
-                );
-
-                const destination =
-                    service.normalizeRemotePath(
-                        destinationInput.value
-                        || currentDirectory
-                    );
-
-                const remotePath =
-                    await service.writeLocalFile(
-                        selectedFile,
-                        destination,
-                        setProgress,
-                    );
-
-                setProgress(1);
-
-                setStatus(
-                    `Uploaded ${remotePath}`
-                );
-
-                setTriggerValue(
-                    "transfer_complete",
-                    {
-                        filename:
-                            selectedFile.name,
-
-                        destination:
-                            remotePath,
-
-                        size:
-                            selectedFile.size,
-                    }
-                );
-
-                currentDirectory =
-                    destination;
-
-                await refreshDirectory();
-
-            } catch (error) {
-                setError(
-                    `Upload failed: ${error.message}`
-                );
-
-            } finally {
-                refreshButtons();
-            }
-        };
-
-
-    /*
-     * --------------------------------------------------
-     * Physical device removal
+     * Physical USB disconnect
      * --------------------------------------------------
      */
 
     function handleDisconnect(event) {
+        const currentPort =
+            service.client.port;
+
         if (
-            event.target
-            !== service.client.port
+            currentPort
+            && event.target !== currentPort
         ) {
             return;
         }
 
-        setStateValue(
-            "connected",
+        service.handlePhysicalDisconnect();
+
+        clearMetadata();
+
+        setConnectionUi(
             false
         );
-
-        deviceStatus.textContent =
-            "Disconnected";
 
         setStatus(
             "Serial device disconnected."
         );
-
-        refreshButtons();
     }
 
 
@@ -1206,13 +1030,39 @@ export default function(component) {
     );
 
 
-    refreshButtons();
+    /*
+     * --------------------------------------------------
+     * Synchronize component with existing JS session
+     * --------------------------------------------------
+     */
+
+    setConnectionUi(
+        service.connected
+    );
+
+
+    /*
+     * A new write request can arrive on a Streamlit
+     * rerun while the browser-side serial service is
+     * still connected.
+     */
+
+    if (
+        service.connected
+        && data?.writeRequest
+    ) {
+        void processWriteRequest();
+    }
 
 
     /*
      * --------------------------------------------------
      * Cleanup
      * --------------------------------------------------
+     *
+     * Do not disconnect the serial service here.
+     * Streamlit can rerender/update the component and
+     * we want to preserve the browser-side connection.
      */
 
     return () => {

@@ -10,67 +10,91 @@ CSS = """
     margin-bottom: 1rem;
 }
 
-.field label {
-    display: block;
-    margin-bottom: 0.35rem;
-    font-weight: 600;
-}
-
 .button-row {
     display: flex;
     gap: 0.5rem;
+    margin-bottom: 1.5rem;
 }
 
-button {
-    padding: 0.5rem 1rem;
-    cursor: pointer;
+
+/*
+ * Streamlit-style primary button
+ */
+
+.st-primary-button {
+    min-height: 2.5rem;
+
+    padding:
+        0.25rem
+        0.75rem;
+
+    border:
+        1px solid
+        var(--st-primary-color);
+
+    border-radius:
+        0.5rem;
+
+    background-color:
+        var(--st-primary-color);
+
+    color:
+        white;
+
+    font-family:
+        var(--st-font);
+
+    font-size:
+        1rem;
+
+    font-weight:
+        400;
+
+    line-height:
+        1.6;
+
+    cursor:
+        pointer;
+
+    transition:
+        border-color 0.15s,
+        background-color 0.15s,
+        color 0.15s;
 }
 
-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
+
+/*
+ * Hover
+ */
+
+.st-primary-button:hover:not(:disabled) {
+    filter: brightness(0.9);
 }
 
-button.primary {
-    background: var(--st-primary-color);
-    color: white;
-    border: none;
-    border-radius: 0.4rem;
+
+/*
+ * Active / pressed
+ */
+
+.st-primary-button:active:not(:disabled) {
+    filter: brightness(0.8);
 }
 
-input[type="text"] {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0.5rem;
+
+/*
+ * Disabled
+ */
+
+.st-primary-button:disabled {
+    cursor:
+        not-allowed;
+
+    opacity:
+        0.35;
 }
 
-progress {
-    width: 100%;
-    height: 1rem;
-}
 
-#file-list {
-    margin-top: 0.5rem;
-    border: 1px solid rgba(128, 128, 128, 0.25);
-    border-radius: 0.4rem;
-    padding: 0.5rem;
-    min-height: 4rem;
-}
-
-.file-entry {
-    padding: 0.25rem;
-}
-
-.directory-entry {
-    font-weight: 600;
-    cursor: pointer;
-}
-
-#status,
-#device-status,
-#progress-text,
-#selected-file,
-#current-directory {
+#device-status {
     margin-top: 0.35rem;
     font-size: 0.9rem;
 }

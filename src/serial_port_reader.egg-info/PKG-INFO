@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: serial-port-reader
+Version: 0.1.0
+Summary: Serial Port Reader Application
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: google-api-python-client<3.0,>=2.195
+Requires-Dist: google-auth-oauthlib==1.3.1
+Requires-Dist: numpy<3.0,>=2.0
+Requires-Dist: openpyxl==3.1.5
+Requires-Dist: pandas<3.0,>=2.3
+Requires-Dist: pyarrow<18.0,>=17.0
+Requires-Dist: protobuf<6.0,>=5.26.1
+Requires-Dist: pyrebase4==4.8.0
+Requires-Dist: python-dotenv==1.2.2
+Requires-Dist: requests<3.0,>=2.32
+Requires-Dist: urllib3==1.26.20
+Requires-Dist: streamlit<2.0,>=1.56.0
+Requires-Dist: streamlit-extras==1.5.0
+Requires-Dist: packaging>=25
+Requires-Dist: markdown==3.10.2

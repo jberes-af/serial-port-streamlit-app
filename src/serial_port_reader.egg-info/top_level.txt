@@ -1,0 +1,4 @@
+domain
+gui
+infrastructure
+main

@@ -19,14 +19,21 @@ class RP2040TransferEvent:
 
 
 @dataclass(frozen=True)
+class RP2040WriteRequest:
+    request_id: str
+    filename: str
+    content: bytes
+
+
+@dataclass(frozen=True)
 class RP2040DeviceState:
     connected: bool = False
-    entries: tuple[RP2040Entry, ...] = ()
-    current_directory: str = "/"
-
+    sid_exists: bool = False
+    did_exists: bool = False
+    sid: str | None = None
+    did: str | None = None
     filename: str | None = None
     file_size: int | None = None
-
     status: str = "Ready"
     error: str | None = None
 
