@@ -15,13 +15,20 @@ HTML = """
             </button>
 
             <button
+                id="connect-button"
+                class="st-primary-button"
+            >
+                Connect
+            </button>
+            
+            <button
                 id="disconnect-button"
                 class="st-secondary-button"
                 disabled
             >
                 Disconnect
             </button>
-
+            
             <button
                 id="refresh-button"
                 class="st-secondary-button"

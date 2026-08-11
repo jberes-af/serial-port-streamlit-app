@@ -18,63 +18,41 @@ CSS = """
 
 
 /*
- * Streamlit-style primary button
+ * Buttons
+ */
+
+.st-primary-button,
+.st-secondary-button {
+    min-height: 2.5rem;
+    padding: 0.25rem 0.75rem;
+
+    border-radius: 0.5rem;
+
+    font-family: var(--st-font);
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.6;
+
+    cursor: pointer;
+}
+
+
+/*
+ * Primary button
  */
 
 .st-primary-button {
-    min-height: 2.5rem;
-
-    padding:
-        0.25rem
-        0.75rem;
+    background-color: var(--st-primary-color);
+    color: white;
 
     border:
         1px solid
         var(--st-primary-color);
-
-    border-radius:
-        0.5rem;
-
-    background-color:
-        var(--st-primary-color);
-
-    color:
-        white;
-
-    font-family:
-        var(--st-font);
-
-    font-size:
-        1rem;
-
-    font-weight:
-        400;
-
-    line-height:
-        1.6;
-
-    cursor:
-        pointer;
-
-    transition:
-        border-color 0.15s,
-        background-color 0.15s,
-        color 0.15s;
 }
-
-
-/*
- * Hover
- */
 
 .st-primary-button:hover:not(:disabled) {
     filter: brightness(0.9);
 }
-
-
-/*
- * Active / pressed
- */
 
 .st-primary-button:active:not(:disabled) {
     filter: brightness(0.8);
@@ -82,17 +60,38 @@ CSS = """
 
 
 /*
- * Disabled
+ * Secondary button
  */
 
-.st-primary-button:disabled {
-    cursor:
-        not-allowed;
+.st-secondary-button {
+    background-color: transparent;
+    color: var(--st-text-color);
 
-    opacity:
-        0.35;
+    border:
+        1px solid
+        rgba(49, 51, 63, 0.25);
 }
 
+.st-secondary-button:hover:not(:disabled) {
+    border-color: var(--st-primary-color);
+    color: var(--st-primary-color);
+}
+
+
+/*
+ * Disabled buttons
+ */
+
+.st-primary-button:disabled,
+.st-secondary-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
+
+/*
+ * Device status
+ */
 
 #device-status {
     margin-top: 0.35rem;
