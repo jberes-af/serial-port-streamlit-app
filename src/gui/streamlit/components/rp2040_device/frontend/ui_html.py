@@ -13,13 +13,6 @@ HTML = """
             >
                 Connect
             </button>
-
-            <button
-                id="connect-button"
-                class="st-primary-button"
-            >
-                Connect
-            </button>
             
             <button
                 id="disconnect-button"
