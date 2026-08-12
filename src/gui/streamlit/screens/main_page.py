@@ -15,9 +15,10 @@ from src.main.composition_root import AppContainer
 import json
 import streamlit as st
 
+RP2040_WRITE_REQUEST_KEY = "rp2040_write_request"
 NEW_SENSOR_IDS_KEY = "new_sensor_ids"
 SENSOR_ID_INPUT_KEY = "sensor_id_input"
-
+NEW_CONFIG_INITIALIZED_KEY = "new_config_initialized"
 _SENSOR_ID_LENGTH = 5
 
 
@@ -29,13 +30,10 @@ def render_main_page(
 
     st.title(app_name)
 
-    st.subheader("Connect a Wedge")
-
-    st.write("")
-
+    _render_header_section()
 
     write_request = st.session_state.get(
-        "rp2040_write_request"
+        RP2040_WRITE_REQUEST_KEY
     )
 
     result: RP2040DeviceResult = render_rp2040_device(
@@ -43,6 +41,19 @@ def render_main_page(
         write_request=write_request,
         key="rp2040_device",
     )
+
+    # --- Handle completed write request
+
+    if result.transfer_complete:
+        st.session_state[
+            RP2040_WRITE_REQUEST_KEY
+        ] = None
+
+        st.success(
+            "Configuration flashed successfully."
+        )
+
+    # --- Render device configuration
 
     if result.state.sid_exists:
         gateway_id, serial_ids = (
@@ -86,7 +97,26 @@ def _render_rp2040_state(
 
         if gateway_id.startswith("A"):
             gateway_text = gateway_id
-            serial_ids = _build_sensor_ids(state)
+            serial_ids = _build_sensor_ids(
+                state
+            )
+
+            if not st.session_state[
+                NEW_CONFIG_INITIALIZED_KEY
+            ]:
+                st.session_state[
+                    NEW_SENSOR_IDS_KEY
+                ] = serial_ids.copy()
+
+                st.session_state[
+                    NEW_CONFIG_INITIALIZED_KEY
+                ] = True
+
+
+
+
+
+
         else:
             gateway_text = (
                 f"Non-Gateway device connected: {gateway_id}"
@@ -134,6 +164,7 @@ def _render_rp2040_state(
                             # height=_height,
                         )
 
+                    """
                     with move_col:
                         move_clicked = st.button(
                             "",
@@ -156,6 +187,7 @@ def _render_rp2040_state(
                             )
 
                         st.rerun()
+                    """
 
             else:
                 st.write(
@@ -167,21 +199,36 @@ def _render_rp2040_state(
     return gateway_id, serial_ids
 
 
-def _build_sensor_ids(state: RP2040DeviceState) -> list[str]:
-    if not state.did_exists:
+def _build_sensor_ids(
+        state: RP2040DeviceState,
+) -> list[str]:
+    if not state.did_exists or not state.did:
         return []
 
-    serial_ids_str: str = (state.did
-                           .replace('{"dvc":', "")
-                           .replace("{", "")
-                           .replace("}", "")
-                           .replace("[", "")
-                           .replace("]", "")
-                           .replace('"', "")
-                           .strip()
-                           )
-    serial_ids: list[str] = serial_ids_str.split(",")
-    return serial_ids
+    try:
+        data = json.loads(
+            state.did
+        )
+
+    except json.JSONDecodeError:
+        return []
+
+    sensor_ids = data.get(
+        "dvc",
+        [],
+    )
+
+    if not isinstance(
+            sensor_ids,
+            list,
+    ):
+        return []
+
+    return [
+        str(sensor_id).strip()
+        for sensor_id in sensor_ids
+        if str(sensor_id).strip()
+    ]
 
 
 def _render_create_new_config_section(
@@ -191,9 +238,7 @@ def _render_create_new_config_section(
 
     _height: int = 50
 
-    st.subheader(
-        "Create New Pairing Configuration"
-    )
+    st.subheader("Create New Pairing Configuration")
 
     col1, col2, _col3 = st.columns([1, 1, 2])
 
@@ -316,16 +361,15 @@ def _render_create_new_config_section(
         flash_clicked = st.button(
             "Flash Sensor IDs",
             icon=":material/usb:",
-            key=(
-                f"flash_sensors"
-            ),
-            help=(
-                f"Flash selected sensors to Gateway."
-            ),
-            type="primary"
+            key="flash_sensors",
+            help="Flash selected sensors to Gateway.",
+            type="primary",
         )
 
     if flash_clicked:
+        _confirm_flash()
+
+        """
         content: bytes = _create_did_dot_dat_file()
 
         request_id = uuid4().hex
@@ -337,6 +381,7 @@ def _render_create_new_config_section(
         )
 
         st.rerun()
+        """
 
 
 def _validate_user_input(
@@ -374,6 +419,11 @@ def _is_hex_value(
 
 
 def _initialize_session_state() -> None:
+    if NEW_CONFIG_INITIALIZED_KEY not in st.session_state:
+        st.session_state[
+            NEW_CONFIG_INITIALIZED_KEY
+        ] = False
+
     if NEW_SENSOR_IDS_KEY not in st.session_state:
         st.session_state[
             NEW_SENSOR_IDS_KEY
@@ -386,6 +436,81 @@ def _create_did_dot_dat_file() -> bytes:
     file_content: dict[str, list[str]] = {"dvc": sensor_ids}
 
     content_bytes: bytes = json.dumps(
-        file_content, separators=(',', ': ')).encode('utf-8')
+        file_content, separators=(',', ':')).encode('utf-8')
 
     return content_bytes
+
+
+def _render_header_section() -> None:
+    with st.popover(
+            "Connect a Wedge",
+            icon=":material/info:",
+            help="Connection information",
+            type="tertiary"
+    ):
+        st.markdown(
+            """
+            **Connecting a Wedge**
+
+            1. Connect the Wedge to the USB serial port **after** having refreshed the web application.
+            2. Select **Connect**.
+            3. If sensor IDs are found in the pairing file, they will appear in the **Change Configuration** section.
+            4. Remove unwanted existing sensor IDs and add new ones.
+            5. Click **Flash Sensor IDs** to write the new pairing file.
+            """
+        )
+
+    st.write("")
+
+
+@st.dialog("Confirm Flash")
+def _confirm_flash() -> None:
+    sensor_ids = st.session_state[
+        NEW_SENSOR_IDS_KEY
+    ]
+
+    st.write(
+        "The following Sensor IDs will be written "
+        "to the connected Wedge:"
+    )
+
+    for sensor_id in sensor_ids:
+        st.code(
+            sensor_id,
+            language=None,
+        )
+
+    st.warning(
+        "The existing did.dat file will be overwritten."
+    )
+
+    cancel_col, flash_col = st.columns(2)
+
+    with cancel_col:
+        if st.button(
+                "Cancel",
+                use_container_width=True,
+        ):
+            st.rerun()
+
+    with flash_col:
+        if st.button(
+                "Flash",
+                type="primary",
+                icon=":material/flash_on:",
+                use_container_width=True,
+        ):
+            _queue_flash_request()
+            st.rerun()
+
+
+def _queue_flash_request() -> None:
+    content = _create_did_dot_dat_file()
+
+    st.session_state[
+        RP2040_WRITE_REQUEST_KEY
+    ] = RP2040WriteRequest(
+        request_id=uuid4().hex,
+        filename="did.dat",
+        content=content,
+    )
